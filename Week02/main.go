@@ -1,7 +1,7 @@
 package main
 
 import (
-	"Go-000/week02/service"
+	"Go-000/Week02/service"
 	"fmt"
 )
 
