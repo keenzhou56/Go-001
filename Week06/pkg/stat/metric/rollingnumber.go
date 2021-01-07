@@ -1,102 +1,111 @@
 // Package rollingnumber 简化实现 Hystrix 的滚动窗口算法，
-// 结合了 Hystrix 和 https://github.com/afex/hystrix-go 的实现。
-// 使用桶数组，Increment 时删除旧桶
-package rollingnumber
+// 借鉴了 https://github.com/afex/hystrix-go 的实现。
+// 没有使用循环队列，但是巧妙地以秒级时间戳为键，在超过10个桶以后删除旧桶，
+// hystrix-go 删除旧桶操作在锁里，临界区较大，影响性能。
+// 由于计算均值时只用最新的 10 个桶（最近1秒的数据），未及时删除旧桶
+// 不会对计算造成错误的影响，所以我将删除操作移出了临界区
+package metric
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
 // RollingNumber 用于追踪计数
+// 字典的键是时间戳
 type RollingNumber struct {
-	buckets [10]*bucket
-	lock    *sync.RWMutex
-}
-
-// NewRollingNumber 构造 RollingNumber 实例
-func NewRollingNumber() *RollingNumber {
-	buckets := [10]*bucket{}
-	startTime := time.Now().Unix()
-	for i := 0; i < 10; i++ {
-		buckets[i] = newBucket(startTime + int64(i))
-	}
-	r := &RollingNumber{
-		buckets: buckets,
-		lock:    &sync.RWMutex{},
-	}
-	return r
+	Buckets map[int64]*bucket
+	Mu      *sync.RWMutex
 }
 
 // bucket 为计数桶
 type bucket struct {
-	windowStart int64
-	value       int64
+	Value int64
 }
 
-func newBucket(startTime int64) *bucket {
-	return &bucket{
-		windowStart: startTime,
-		value:       int64(0),
+// NewRollingNumber 构造 RollingNumber 实例
+func NewRollingNumber() *RollingNumber {
+	rn := &RollingNumber{
+		Buckets: make(map[int64]*bucket),
+		Mu:      &sync.RWMutex{},
+	}
+	return rn
+}
+
+func (rn *RollingNumber) getCurrentBucket() *bucket {
+	now := time.Now().Unix()
+	var b *bucket
+	var ok bool
+	if b, ok = rn.Buckets[now]; !ok {
+		b = &bucket{}
+		rn.Buckets[now] = b
+	}
+	return b
+}
+
+func (rn *RollingNumber) removeOldBuckets() {
+	expired := time.Now().Unix() - 10
+	for timestamp := range rn.Buckets {
+		if timestamp <= expired {
+			delete(rn.Buckets, timestamp)
+		}
 	}
 }
 
-func (r *RollingNumber) getCurrentBucket(time int64) *bucket {
-	index := time % 10
-	return r.buckets[index]
+// Increment 累加最新桶的计数器
+func (rn *RollingNumber) Increment() {
+	rn.Mu.Lock()
+	b := rn.getCurrentBucket()
+	b.Value++
+	rn.removeOldBuckets()
+
+	rn.Mu.Unlock()
 }
 
-func (r *RollingNumber) resetBuckets(now int64) {
-	for i, b := range r.buckets {
-		b.windowStart = now + int64(i)
-		b.value = int64(0)
+// UpdateMax 将最新桶的计数器置为某个最大值
+func (rn *RollingNumber) UpdateMax(n int64) {
+	rn.Mu.Lock()
+	b := rn.getCurrentBucket()
+	if n > b.Value {
+		b.Value = n
 	}
-}
-
-// Increment 增加一个桶的计数时
-// 此时有三种情况，以1号桶为例，当前时间秒数为21，
-// 如果桶的 windowStart 为当前时间，将桶的 value 加1。
-// 如果桶的 windowStart 为当前分钟的11秒，重置 windowStart 并置 value 为 1。
-// 如果桶的 windowStart 为早于当前分钟的11秒，即超过一个计数周期（10秒）未更新
-// 过计数器，则先重置计数器
-func (r *RollingNumber) Increment(now int64) {
-	bucket := r.getCurrentBucket(now)
-	if bucket.windowStart == now {
-		atomic.AddInt64(&bucket.value, int64(1))
-		return
-	}
-	if bucket.windowStart == now-10 {
-		r.lock.Lock()
-		bucket.windowStart = now
-		bucket.value = 1
-		r.lock.Unlock()
-		return
-	}
-	// 如果间隔10秒以上，即前10秒（一个计数周期）之内，没有新增请求，
-	// 桶中的数据就没用了，先清空
-	r.lock.Lock()
-	r.resetBuckets(now)
-	bucket.value = 1
-	r.lock.Unlock()
+	rn.Mu.Unlock()
+	rn.removeOldBuckets()
 }
 
 // Sum 计算最新 10 个桶内计数器的和
-func (r *RollingNumber) Sum(now time.Time) int64 {
+func (rn *RollingNumber) Sum(now time.Time) int64 {
 	sum := int64(0)
 
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-	for _, b := range r.buckets {
-		if b.windowStart >= now.Unix()-10 {
-			sum += b.value
+	rn.Mu.RLock()
+	defer rn.Mu.RUnlock()
+
+	for timestamp, bucket := range rn.Buckets {
+		if timestamp >= now.Unix()-10 {
+			sum += bucket.Value
 		}
 	}
-
 	return sum
 }
 
+// Max 获取最新 10 个桶内计数器的最大值
+func (rn *RollingNumber) Max(now time.Time) int64 {
+	var max int64
+
+	rn.Mu.RLock()
+	defer rn.Mu.RUnlock()
+
+	for timestamp, bucket := range rn.Buckets {
+		if timestamp >= now.Unix()-10 {
+			if bucket.Value > max {
+				max = bucket.Value
+			}
+		}
+	}
+	return max
+}
+
 // Avg 计算最新 10 个桶内计数器的平均值
-func (r *RollingNumber) Avg(now time.Time) int64 {
-	return r.Sum(now) / 10
+func (rn *RollingNumber) Avg(now time.Time) int64 {
+	return rn.Sum(now) / 10
 }

@@ -11,18 +11,19 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"Go-000/Week06/pkg/stat/metric/rollingnumber"
+	"Go-000/Week06/pkg/stat/metric"
 )
 
 var (
-	rn     *rollingnumber.RollingNumber
+	rn     *metric.RollingNumber
 	logger = log.New()
 )
 
 func init() {
-	rn = rollingnumber.NewRollingNumber()
+	rn = metric.NewRollingNumber()
 	runtime.GOMAXPROCS(1)
 	logFile, err := os.OpenFile("log.txt", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
+	
 	if err != nil {
 		log.Fatal(err)
 	}
