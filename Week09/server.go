@@ -32,7 +32,7 @@ func main() {
 	}()
 
 	//通知连接关闭
-	context, cancelFunc := context.WithCancel(context.Background())
+	ctx, cancelFunc := context.WithCancel(context.Background())
 
 	// 监听signal信号
 	signalChan := make(chan os.Signal, 1)
@@ -61,23 +61,22 @@ func main() {
 		accept := runtime.NumCPU()
 		// 连接成功，开始监听消息
 		for i := 0; i < accept; i++ {
-			go tcpPipe(tcpConn, context)
+			go tcpPipe(ctx, tcpConn)
 		}
 
 	}
 
 }
 
-func tcpPipe(conn *net.TCPConn, ctx context.Context) {
-	cancel, _ := context.WithCancel(ctx)
+func tcpPipe(ctx context.Context, conn *net.TCPConn) {
+	cancelCtx, _ := context.WithCancel(ctx)
 
 	var msgChan = make(chan []byte, 1)
-	go read(conn, msgChan, cancel)
-	go write(conn, msgChan, cancel)
+	go read(cancelCtx, conn, msgChan)
+	go write(cancelCtx, conn, msgChan)
 }
 
-//读取数据
-func read(conn *net.TCPConn, dataChan chan []byte, ctx context.Context) {
+func read(ctx context.Context, conn *net.TCPConn, dataChan chan []byte) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -99,8 +98,7 @@ func read(conn *net.TCPConn, dataChan chan []byte, ctx context.Context) {
 	}
 }
 
-//操作数据
-func write(conn *net.TCPConn, dataChan chan []byte, ctx context.Context) {
+func write(ctx context.Context, conn *net.TCPConn, dataChan chan []byte) {
 
 	for {
 		select {

@@ -21,12 +21,15 @@ func main() {
 
 	inputReader := bufio.NewReader(os.Stdin)
 	for {
-		input, _ := inputReader.ReadString('\n') // 读取用户输入
+		// 读取用户输入
+		input, _ := inputReader.ReadString('\n')
 		inputInfo := strings.Trim(input, "\r\n")
-		if strings.ToUpper(inputInfo) == "Q" { // 如果输入q就退出
+		// 如果输入quit就退出
+		if strings.ToUpper(inputInfo) == "quit" {
 			return
 		}
-		conn.Write([]byte(inputInfo)) // 发送数据
+		// 发送数据
+		conn.Write([]byte(inputInfo))
 	}
 
 }
