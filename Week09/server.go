@@ -42,13 +42,13 @@ func main() {
 
 	//监听signal信号,收到signal信号通知其他goroutine关闭连接
 	go func() {
-		for {
-			select {
-			case <-signalChan:
-				log.Println("received os signal, ready cancel other conn")
-				cancelFunc()
-			}
+		// for {
+		select {
+		case <-signalChan:
+			log.Println("received os signal, ready cancel other conn")
+			cancelFunc()
 		}
+		// }
 	}()
 
 	for {

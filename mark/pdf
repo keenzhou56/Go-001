@@ -1,0 +1,9 @@
+context
+https://medium.com/a-journey-with-go/go-context-and-cancellation-by-propagation-7a808bbc889c
+https://blog.golang.org/context
+https://www.ardanlabs.com/blog/2019/09/context-package-semantics-in-go.html
+https://zhuanlan.zhihu.com/p/34417106?hmsr=toutiao.io
+https://medium.com/@cep21/how-to-correctly-use-context-context-in-go-1-7-8f2c0fafdf39
+
+https://dave.cheney.net/2017/01/26/context-is-for-cancelation
+https://dave.cheney.net/2017/08/20/context-isnt-for-cancellation
